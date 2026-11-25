@@ -1,0 +1,11 @@
+{
+  "sites": {
+    "example": {
+      "webroot": "/var/www/example/public_html",
+      "files_dir": "/var/www/example/files",
+      "logs": {
+        "access": "/var/log/nginx/example.access.log"
+      }
+    }
+  }
+}

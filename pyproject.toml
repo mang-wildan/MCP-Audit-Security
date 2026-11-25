@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcp-audit-security"
+version = "0.1.0"
+description = "Bounded read-only Linux and PHP web audit MCP server"
+requires-python = ">=3.11"
+dependencies = ["mcp>=1.12,<2"]
+
+[project.scripts]
+mcp-audit-security = "mcp_audit_security.server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
