@@ -156,6 +156,34 @@ class AuditTests(unittest.TestCase):
         with self.assertRaises(ConfigError):
             load_config(None)
 
+    def test_triage_config(self):
+        key = self.root / 'key'
+        base = {'sites': {'demo': {'webroot': str(self.web)}}}
+        triage = {'model': 'typesafe/jev-1.14', 'api_key_file': str(key),
+                  'max_items': 10010, 'max_file_bytes': 9999999, 'timeout_seconds': 999}
+        self.config.write_text(json.dumps({**base, 'triage': triage}))
+        loaded = load_config(str(self.config))['triage']
+        self.assertEqual(loaded, {'model': 'typesafe/jev-1.14', 'api_key_file': str(key),
+                                  'max_items': 1000, 'max_file_bytes': 2 * 1024 * 1024,
+                                  'timeout_seconds': 120})
+        triage = {'model': 'm', 'api_key_file': str(key)}
+        self.config.write_text(json.dumps({**base, 'triage': triage}))
+        loaded = load_config(str(self.config))['triage']
+        self.assertEqual((loaded['max_items'], loaded['max_file_bytes'], loaded['timeout_seconds']),
+                         (50, 262144, 30))
+        self.config.write_text(json.dumps({**base, 'triage': {**triage, 'timeout_seconds': 0}}))
+        self.assertEqual(load_config(str(self.config))['triage']['timeout_seconds'], 1)
+        self.config.write_text(json.dumps(base))
+        self.assertNotIn('triage', load_config(str(self.config)))
+        for bad in ({'max_items': 0}, {'max_items': -1}, {'max_items': True}, {'max_items': '5'},
+                    {'max_items': 5.0}, {'max_file_bytes': 0},
+                    {'api_key_file': 'relative/key'}, {'x': 1}, {'model': 'BAD'},
+                    {'max_file_bytes': 'x'}, {'timeout_seconds': False}):
+            self.config.write_text(json.dumps({**base,
+                'triage': {'model': 'm', 'api_key_file': str(key), **bad}}))
+            with self.assertRaises(ConfigError):
+                load_config(str(self.config))
+
 
 if __name__ == '__main__':
     unittest.main()

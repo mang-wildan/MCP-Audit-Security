@@ -15,6 +15,13 @@ MAX_RESULTS = 500
 MAX_SECONDS = 10
 MAX_LOG_BYTES = 1024 * 1024
 MAX_LINE = 8192
+MAX_TRIAGE_ITEMS = 1000
+RULES = {
+    'PHP_TAG': re.compile(rb'<\?(?:php|=)', re.I),
+    'PHP_DYNAMIC_EXEC': re.compile(rb'\b(?:eval|assert|system|exec|shell_exec|passthru|popen|proc_open)\s*\(', re.I),
+    'PHP_OBFUSCATION': re.compile(rb'\b(?:base64_decode|gzinflate|gzuncompress|str_rot13)\s*\(', re.I),
+    'PHP_REQUEST_INPUT': re.compile(rb'\$_(?:GET|POST|REQUEST|COOKIE|FILES)\b', re.I),
+}
 FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 PASSWD = '/etc/passwd'
 PERSISTENCE = (
@@ -99,13 +106,35 @@ def strict_json(data):
     return json.loads(data, object_pairs_hook=pairs)
 
 
+def triage_config(t):
+    if not isinstance(t, dict) or not {'model', 'api_key_file'} <= set(t) or set(t) - {
+            'model', 'api_key_file', 'max_items', 'max_file_bytes', 'timeout_seconds'}:
+        raise ValueError('triage schema')
+    if not isinstance(t['model'], str) or not re.fullmatch(r'[a-z0-9~][a-z0-9.\-/:]{0,99}', t['model']):
+        raise ValueError('triage model')
+    parts(t['api_key_file'], True)
+    def bounded(key, default, low, high, clamp_low=False):
+        value = t.get(key, default)
+        if type(value) is not int or (not clamp_low and value < low):
+            raise ValueError('triage ' + key)  # rejects bool, float, str; low invalid for strict keys
+        if clamp_low and value < low:
+            value = low
+        return min(value, high)
+    return {'model': t['model'], 'api_key_file': t['api_key_file'],
+            'max_items': bounded('max_items', 50, 1, MAX_TRIAGE_ITEMS),
+            'max_file_bytes': bounded('max_file_bytes', 262144, 1, MAX_FILE),
+            'timeout_seconds': bounded('timeout_seconds', 30, 1, 120, clamp_low=True)}
+
+
 def load_config(path):
     try:
         if not path:
             raise ValueError('explicit configuration required')
         config = strict_json(read_abs(path, 65536))
-        if not isinstance(config, dict) or set(config) != {'sites'}:
+        if not isinstance(config, dict) or 'sites' not in config or set(config) - {'sites', 'triage'}:
             raise ValueError('schema')
+        if 'triage' in config:
+            config['triage'] = triage_config(config['triage'])
         sites = config['sites']
         if not isinstance(sites, dict) or not 1 <= len(sites) <= 32:
             raise ValueError('sites')
@@ -260,15 +289,9 @@ class Audit:
 
     def payload_scan(self, site_id):
         site = self.site(site_id)
-        rules = {
-            'PHP_TAG': re.compile(rb'<\?(?:php|=)', re.I),
-            'PHP_DYNAMIC_EXEC': re.compile(rb'\b(?:eval|assert|system|exec|shell_exec|passthru|popen|proc_open)\s*\(', re.I),
-            'PHP_OBFUSCATION': re.compile(rb'\b(?:base64_decode|gzinflate|gzuncompress|str_rot13)\s*\(', re.I),
-            'PHP_REQUEST_INPUT': re.compile(rb'\$_(?:GET|POST|REQUEST|COOKIE|FILES)\b', re.I),
-        }
         def visit(b, name, st, data):
             digest = hashlib.sha256(data).hexdigest()
-            for rule, pattern in rules.items():
+            for rule, pattern in RULES.items():
                 for match in pattern.finditer(data):
                     if not b.active():
                         return

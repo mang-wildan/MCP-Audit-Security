@@ -12,6 +12,12 @@ def create_server(config):
                    'idempotentHint': True, 'openWorldHint': False}
     for name in ('host_inventory', 'persistence_audit', 'web_integrity', 'payload_scan', 'log_timeline'):
         server.tool(name=name, annotations=annotations)(getattr(audit, name))
+    if 'triage' in config:
+        from .triage import Triage
+        triage_handler = Triage(audit, config['triage']).payload_triage
+        server.tool(name='payload_triage', description='Opt-in LLM triage for files flagged by payload rules.',
+                    annotations={'readOnlyHint': False, 'destructiveHint': False,
+                                 'idempotentHint': False, 'openWorldHint': True})(triage_handler)
     return server
 
 
